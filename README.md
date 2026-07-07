@@ -102,14 +102,9 @@ You generally only need to touch the **Positive Prompt** and **Load Image** node
 
 ---
 
-## Storage situation
+## Storage
 
-Your network volume (`/workspace`) is full — all 75GB is used by the AI models. This means:
-
-- **Workflow file**: Stored in `/tmp` via a symlink (that's why setup.sh is needed after restarts)
-- **Generated videos**: ComfyUI saves them to `/workspace/ComfyUI/output/` — this **may fail** if the quota blocks it
-
-**Fix**: In RunPod, go to your pod → **Edit** → increase the **Network Volume** size (e.g. from 80GB to 100GB). This costs a small extra amount per hour but permanently solves the quota issue and means you won't need the setup script anymore.
+Your network volume is 100GB — models use ~75GB, leaving ~25GB free for generated videos and workflow files. Everything saves directly to `/workspace` and persists across pod restarts.
 
 ---
 

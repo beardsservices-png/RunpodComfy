@@ -26,19 +26,17 @@ else
     echo "      Cloned from GitHub."
 fi
 
-# Step 2: Install the workflow symlink
-# /workspace has a storage quota that blocks new files, so we store the
-# JSON in /tmp (container disk) and symlink it into the workflows folder.
+# Step 2: Copy workflow directly to /workspace (persistent across restarts)
 echo "[2/3] Installing workflow..."
 mkdir -p "$WORKFLOWS_DIR"
 rm -f "$WORKFLOWS_DIR/$WORKFLOW"
-ln -s "$REPO_DIR/$WORKFLOW" "$WORKFLOWS_DIR/$WORKFLOW"
-# Verify it's readable
+cp "$REPO_DIR/$WORKFLOW" "$WORKFLOWS_DIR/$WORKFLOW"
+# Verify it's readable and correct
 python3 -c "
 import json
 with open('$WORKFLOWS_DIR/$WORKFLOW') as f:
     d = json.load(f)
-print(f'      Installed: $WORKFLOW ({len(d)} nodes)')
+print(f'      Installed: $WORKFLOW ({len(d)} nodes) — saved to /workspace (persistent)')
 "
 
 # Step 3: Check ComfyUI is running
