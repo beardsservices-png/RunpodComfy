@@ -1,159 +1,61 @@
-# RunpodComfy — WAN 2.2 Image-to-Video
+# RunpodComfy — photo → short video (WAN 2.2)
 
-Turn a single image into a short video using the WAN 2.2 AI model running on a RunPod GPU.
+Give it one photo and a sentence describing the motion. It returns a ~5 second MP4.
+WAN 2.2 does the work on a rented RunPod GPU; you never have to open ComfyUI.
 
----
+## Make a video (from this PC)
 
-## What's in this repo
+```
+python pod.py start                                   # start the GPU (~1-3 min)
+python make_video.py photo.jpg "slow camera push-in on the new deck, sunny afternoon"
+python pod.py stop                                    # STOP BILLING when you're done
+```
 
-| File | What it does |
+The video lands in `Videos\WAN`. Each run prints a **seed**. Add `--seed N` to repeat a result you liked.
+
+| Option | What it does |
 |---|---|
-| `wan22_i2v_unrestricted.json` | The ComfyUI workflow (14 nodes, ready to use) |
-| `setup.sh` | Restores the workflow after a pod restart |
+| `--quality full` | 20 steps instead of 4. Sometimes cleaner, about 5× slower |
+| `--hd` | 720p instead of 480p, about 2–3× slower |
+| `--seconds 3` | shorter clip (WAN tops out around 5 s) |
 
----
+**Prompt tips:** describe *motion and camera*, not the picture. The photo already
+shows what's in the scene. Good: "camera slowly orbits left", "steam rises from the
+coffee", "leaves sway in a light breeze". Keep it to one or two motions.
 
-## Prerequisites
+## One-time / after big changes: install models on the pod
 
-- A RunPod account with a pod running the **ComfyUI** template
-- An SSH key added to RunPod (already done — key is at `~/.ssh/id_ed25519`)
-- The WAN 2.2 models already on your network volume (already there)
-
----
-
-## Every time your pod restarts
-
-The workflow file is stored in `/tmp` which gets wiped on restart. Run this **one command** after each restart to restore everything:
-
-### Step 1 — Connect via SSH
-
-In your RunPod dashboard, click your pod → **Connect** → copy the SSH command. It looks like:
-
-```
-ssh abc123xyz-6441171a@ssh.runpod.io -i ~/.ssh/id_ed25519
-```
-
-Paste it into a terminal (PowerShell or Terminal on Mac/Linux).
-
-### Step 2 — Run the setup script
-
-Once connected, paste this:
+SSH in (`python pod.py ssh` prints the command), then:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/beardsservices-png/RunpodComfy/main/setup.sh | bash
 ```
 
-It will:
-- Pull the latest workflow from this GitHub repo
-- Install it where ComfyUI can find it
-- Confirm ComfyUI is running
+It only downloads what's missing:
 
-You'll see output ending with **"Setup complete!"**
-
-### Step 3 — Open ComfyUI
-
-In RunPod dashboard: pod → **Connect** → **HTTP Service** → Port **8188**
-
----
-
-## How to generate a video
-
-1. **Open ComfyUI** (port 8188 proxy link from RunPod)
-
-2. **Load the workflow**
-   - Click **Workflows** (top menu) → **Browse**
-   - Select `wan22_i2v_unrestricted`
-
-3. **Upload your source image**
-   - Find the **"Load Image (Upload Here)"** node (light blue box)
-   - Click **Upload** and pick any image from your computer
-   - Best results: portrait orientation, clear subject, minimal motion blur
-
-4. **Write your prompt**
-   - Find the **"Positive Prompt"** node (the text box that's empty)
-   - Describe the motion you want, e.g.:
-     - *"a woman slowly turns her head and smiles"*
-     - *"leaves gently swaying in the breeze"*
-     - *"camera slowly zooms in"*
-
-5. **Queue it**
-   - Click the orange **Queue** button (top right)
-   - Wait **2–5 minutes** — the L40s GPU is fast but the model is large
-   - Progress bar appears at the top of the screen
-
-6. **Download your video**
-   - When done, a video preview appears in the bottom-right output node
-   - Right-click the video → Save
-
----
-
-## Workflow settings (what everything means)
-
-You generally only need to touch the **Positive Prompt** and **Load Image** nodes. But here's what the others do:
-
-| Node | Setting | Default | What it does |
-|---|---|---|---|
-| KSampler | `steps` | 25 | More steps = better quality but slower. Range: 15–40 |
-| KSampler | `cfg` | 5.5 | How strictly it follows your prompt. Higher = more literal |
-| KSampler | `seed` | 421337 | Change this number for different variations |
-| WanImageToVideo | `length` | 33 | Number of frames (~2 sec at 16fps). Max ~81 |
-| WanImageToVideo | `width/height` | 480×832 | Output resolution (portrait). Swap for landscape |
-| CreateVideo | `fps` | 16 | Frames per second. 16 looks natural for AI video |
-
----
-
-## Storage
-
-Your network volume is 100GB — models use ~75GB, leaving ~25GB free for generated videos and workflow files. Everything saves directly to `/workspace` and persists across pod restarts.
-
----
-
-## Models on your pod
-
-These are already downloaded and ready:
-
-| Model | Purpose | Size |
+| File | Job | Size |
 |---|---|---|
-| `wan2.2_i2v_high_noise_14B_fp16.safetensors` | Main video generation model | ~54GB |
-| `umt5_xxl_fp8_e4m3fn_scaled.safetensors` | Understands your text prompt | 19GB |
-| `clip_vision_h.safetensors` | Understands your input image | 1.2GB |
-| `Wan2_1_VAE_bf16.safetensors` | Converts model output to video | 244MB |
+| `wan2.2_i2v_high_noise_14B_*` | pass 1: plans the motion | 14–29 GB |
+| `wan2.2_i2v_low_noise_14B_*` | pass 2: fills in detail | 14–29 GB |
+| `wan2.2_i2v_lightx2v_4steps_lora_*` (×2) | speed add-on: 4 steps instead of 20 | 1.2 GB each |
+| `umt5_xxl_fp8_e4m3fn_scaled` | reads your prompt | 6.7 GB |
+| `wan_2.1_vae` / `Wan2_1_VAE_bf16` | turns the result into frames | 0.25 GB |
 
----
+## Why the old workflow looked bad
 
-## Troubleshooting
+WAN 2.2 is **two models that take turns**: the high-noise model handles the first half of
+the steps and the low-noise model finishes the rest. The original workflow
+(`wan22_i2v_unrestricted.json`, now removed but still in git history) loaded only the
+high-noise model for all 25 steps, so the output was blurry. `wan22_i2v_api.json` follows ComfyUI's official WAN 2.2 template.
 
-**"Workflow not found" in ComfyUI browser**
-→ Run the setup script again (see above)
+## Files
 
-**ComfyUI shows red error nodes**
-→ The model filename in node 1 must match exactly what's in `/workspace/ComfyUI/models/unet/`. SSH in and run `ls /workspace/ComfyUI/models/unet/` to check.
+| File | |
+|---|---|
+| `make_video.py` | the photo → video tool (uses `wan22_i2v_api.json`) |
+| `pod.py` | status / start / stop / ssh. Needs a RunPod API key in `~/.runpod/config.toml` |
+| `setup.sh` | installs missing models on the pod |
+| `wan22_i2v_api.json` | the workflow, in ComfyUI API format |
 
-**Video saves fail / disk quota errors**
-→ Expand your network volume in RunPod (see Storage section above)
-
-**ComfyUI not loading in browser**
-→ SSH in and run: `curl -s http://localhost:8188/system_stats`
-→ If no response, start it manually:
-```bash
-nohup python3 /ComfyUI/main.py --listen --enable-cors-header '*' --use-sage-attention --extra-model-paths-config /ComfyUI/extra_model_paths.yaml > /workspace/comfyui.log 2>&1 &
-```
-
-**Pod not responding to SSH**
-→ The pod may have stopped. Go to RunPod dashboard and click **Start**.
-
----
-
-## SSH quick reference
-
-Your SSH key is at `C:\Users\bbria\.ssh\id_ed25519`
-
-The SSH command format (get the exact one from RunPod dashboard each time):
-```
-ssh <pod-id>-<hash>@ssh.runpod.io -i ~/.ssh/id_ed25519
-```
-
-Note: RunPod requires `-tt` flag if you're piping commands:
-```
-echo "ls /workspace" | ssh -tt <pod-id>-<hash>@ssh.runpod.io -i ~/.ssh/id_ed25519
-```
+To click around in ComfyUI yourself, open ComfyUI's **Templates** and pick
+**"Wan 2.2 14B Image to Video"**. That's the official version of the same workflow.
